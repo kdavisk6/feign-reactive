@@ -17,6 +17,6 @@ public interface Request {
 
   Charset charset();
 
-  Publisher body();
+  byte[] body();
 
 }

@@ -1,17 +1,15 @@
 package feign;
 
-import java.nio.ByteBuffer;
 import org.reactivestreams.Publisher;
 
 @FunctionalInterface
 public interface Encoder {
 
   /**
-   * Encodes the entities provided.
+   * Encodes the {@link Request} provided.
    *
-   * @param entities publisher to subscribe to.
-   * @param <T> of objects on the incoming publisher.
-   * @return a Publishers containing the encoded objects, as a ByteBuffer.
+   * @param request publisher to subscribe to.
+   * @return a Publishers containing the encoded requests.
    */
-  <T> Publisher<ByteBuffer> encode(Publisher<T> entities);
+   Publisher<Request> encode(Publisher<Request> request);
 }

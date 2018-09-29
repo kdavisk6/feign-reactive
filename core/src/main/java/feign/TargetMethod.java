@@ -1,9 +1,13 @@
 package feign;
 
+import java.lang.reflect.Type;
 import org.reactivestreams.Publisher;
 
-public interface TargetMethod {
+abstract class TargetMethod {
 
-  Publisher<Request> resolve(Object[] args);
+  private transient Type returnType;
+
+
+  abstract Publisher<Request> resolve(Object[] args);
 
 }

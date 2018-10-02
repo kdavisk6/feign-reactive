@@ -3,9 +3,10 @@ package feign;
 import org.reactivestreams.Publisher;
 
 /**
- * A Client responsible for submitting {@link Request}s.
+ * A ReactiveClient responsible for submitting {@link Request}s.
  */
-public interface Client {
+@FunctionalInterface
+public interface ReactiveClient {
 
   /**
    * Executes the published {@link Request}s.  Implementations are responsible for subscribing

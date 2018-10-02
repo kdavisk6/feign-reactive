@@ -41,7 +41,7 @@ public class ReactorTarget<T> implements Target<T> {
   }
 
   @Override
-  public TargetMethod method(Method method) {
+  public TargetMethod getMethod(Method method) {
     return this.methodMap.get(method);
   }
 

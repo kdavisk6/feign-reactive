@@ -1,22 +1,26 @@
 package feign;
 
+import feign.InvocationHandlerFactory.MethodHandler;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.util.Map;
 
 public class ReactorInvocationHandler implements InvocationHandler {
 
   private final Target<?> target;
+  private final Map<Method, MethodHandler> methodHandlerMap;
 
-  public ReactorInvocationHandler(Target<?> target) {
+
+  public ReactorInvocationHandler(Target<?> target,
+                                  Map<Method, MethodHandler> methodHandlerMap) {
     this.target = target;
+    this.methodHandlerMap = methodHandlerMap;
   }
 
 
   @Override
   public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-
-
-
-    return null;
+    return this.methodHandlerMap.get(method).invoke(args);
   }
+
 }

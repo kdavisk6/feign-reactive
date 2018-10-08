@@ -31,6 +31,10 @@ public class ReactorMethodHandler implements MethodHandler {
   private Logger.Level logLevel;
   private Retryer retryer;
 
+  public static Builder builder(Target<?> target, MethodMetadata methodMetadata) {
+    return new Builder(target, methodMetadata);
+  }
+
   ReactorMethodHandler(Target<?> target,
                        MethodMetadata metadata,
                        Set<RequestInterceptor> interceptors,
@@ -95,7 +99,7 @@ public class ReactorMethodHandler implements MethodHandler {
         .doOnNext(request -> logger.logRequest(metadata.configKey(), logLevel, request))
 
         /* execute the request */
-        .compose(requestFlux -> client.execute(requestFlux))
+        .transform(requestFlux -> client.execute(requestFlux))
 
         /* retry, if required */
         .retry(throwable -> retryer.shouldRetry(throwable))

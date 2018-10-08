@@ -1,6 +1,7 @@
 package feign;
 
 import feign.InvocationHandlerFactory.MethodHandler;
+import feign.Logger.Level;
 import feign.codec.DecodeException;
 import feign.codec.Decoder;
 import feign.codec.Encoder;
@@ -11,7 +12,6 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Consumer;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 
@@ -43,6 +43,7 @@ public class ReactorMethodHandler implements MethodHandler {
                        Decoder decoder,
                        ErrorDecoder errorDecoder,
                        Logger logger,
+                       Level logLevel,
                        Retryer retryer) {
     this.target = target;
     this.metadata = metadata;
@@ -52,6 +53,7 @@ public class ReactorMethodHandler implements MethodHandler {
     this.decoder = decoder;
     this.errorDecoder = errorDecoder;
     this.logger = logger;
+    this.logLevel = logLevel;
     this.retryer = retryer;
   }
 
@@ -204,6 +206,7 @@ public class ReactorMethodHandler implements MethodHandler {
     private Decoder decoder;
     private ErrorDecoder errorDecoder;
     private Logger logger;
+    private Logger.Level logLevel;
     private Retryer retryer;
 
     public Builder(Target<?> target, MethodMetadata metadata) {
@@ -251,10 +254,15 @@ public class ReactorMethodHandler implements MethodHandler {
       return this;
     }
 
+    public Builder logLevel(Logger.Level logLevel) {
+      this.logLevel = logLevel;
+      return this;
+    }
+
     public ReactorMethodHandler build() {
       return new ReactorMethodHandler(this.target, this.metadata, this.interceptors, this.client,
           this.encoder, this.decoder, this.errorDecoder, this.logger,
-          this.retryer);
+          this.logLevel, this.retryer);
 
     }
   }

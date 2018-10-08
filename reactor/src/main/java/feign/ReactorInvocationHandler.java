@@ -20,7 +20,14 @@ public class ReactorInvocationHandler implements InvocationHandler {
 
   @Override
   public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-    return this.methodHandlerMap.get(method).invoke(args);
+    MethodHandler methodHandler = this.methodHandlerMap.get(method);
+    if (methodHandler != null) {
+      /* invoke the method handler */
+      return methodHandler.invoke(args);
+    } else {
+      /* invoke on the proxy */
+      return method.invoke(proxy, args);
+    }
   }
 
 }

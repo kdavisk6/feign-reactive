@@ -2,16 +2,24 @@ package feign;
 
 import feign.InvocationHandlerFactory.MethodHandler;
 import feign.Logger.Level;
+import feign.Param.Expander;
 import feign.codec.DecodeException;
 import feign.codec.Decoder;
 import feign.codec.Encoder;
 import feign.codec.ErrorDecoder;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 
@@ -30,6 +38,7 @@ public class ReactorMethodHandler implements MethodHandler {
   private Logger logger;
   private Logger.Level logLevel;
   private Retryer retryer;
+  private Map<Integer, Expander> expanders = new LinkedHashMap<>();
 
   public static Builder builder(Target<?> target, MethodMetadata methodMetadata) {
     return new Builder(target, methodMetadata);
@@ -55,11 +64,11 @@ public class ReactorMethodHandler implements MethodHandler {
     this.logger = logger;
     this.logLevel = logLevel;
     this.retryer = retryer;
+    this.cacheExpanders();
   }
 
   /**
-   * Invoke the Target Method.  Any unhandled exceptions will short-circuit
-   * the pipeline.
+   * Invoke the Target Method.  Any unhandled exceptions will short-circuit the pipeline.
    *
    * @param arguments for the Method.
    * @return a {@link org.reactivestreams.Publisher} for the Method return type.
@@ -76,6 +85,8 @@ public class ReactorMethodHandler implements MethodHandler {
 
     /* identify the request body from the arguments */
     final Object requestBody = this.getRequestBodyFromArguments(arguments);
+
+    /* append any query and/or header map method parameters to the template */
 
     /* start the reactive pipeline */
     return Flux.just(requestTemplate)
@@ -129,13 +140,17 @@ public class ReactorMethodHandler implements MethodHandler {
   }
 
   /**
-   * Locate and extract the argument that represents the body of the request.  Can be
-   * {@literal null} if none are present.
+   * Locate and extract the argument that represents the body of the request.  Can be {@literal
+   * null} if none are present.
    *
    * @param arguments of the method to inspect.
    * @return the argument that represents the body of the request.  Can be {@literal null}.
    */
   private Object getRequestBodyFromArguments(Object[] arguments) {
+    List<Object> methodArguments = Arrays.asList(arguments);
+    if (this.metadata.bodyIndex() != null) {
+      return methodArguments.get(this.metadata.bodyIndex());
+    }
     return null;
   }
 
@@ -190,7 +205,42 @@ public class ReactorMethodHandler implements MethodHandler {
    * @return a map of resolved template variables.
    */
   private Map<String, Object> getVariableMapFromArguments(Object[] arguments) {
-    return Collections.emptyMap();
+    Map<String, Object> variables = new LinkedHashMap<>();
+    Map<Integer, Collection<String>> parameterArguments = this.metadata.indexToName();
+    for (Integer index : parameterArguments.keySet()) {
+      final Object parameter = arguments[index];
+      final Expander expander = this.expanders.get(index);
+      Collection<String> parameterNames = parameterArguments.get(index);
+      parameterNames.forEach(name -> {
+        if (parameter != null) {
+          Object value = parameter;
+          if (expander != null) {
+            value = expander.expand(value);
+          }
+          variables.put(name, value);
+        }
+      });
+    }
+
+    return variables;
+  }
+
+  private void cacheExpanders() {
+    this.expanders = new LinkedHashMap<>(this.metadata.indexToExpander());
+    if (!this.metadata.indexToExpanderClass().isEmpty()) {
+      this.metadata.indexToExpanderClass().forEach(
+          (index, expanderClass) -> {
+            try {
+              Expander expander = expanderClass.getDeclaredConstructor().newInstance();
+              expanders.put(index, expander);
+            } catch (Exception ex) {
+              /* the expander does not have a default constructor and cannot be created */
+              throw new IllegalStateException("Expander " + expanderClass.getName() +
+                  " does not have a visible no-argument constructor. Expander cannot be created.",
+                  ex);
+            }
+          });
+    }
   }
 
   /**

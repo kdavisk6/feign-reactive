@@ -11,8 +11,8 @@ public class ReactorInvocationHandler implements InvocationHandler {
   private final Map<Method, MethodHandler> methodHandlerMap;
 
 
-  public ReactorInvocationHandler(Target<?> target,
-                                  Map<Method, MethodHandler> methodHandlerMap) {
+  ReactorInvocationHandler(Target<?> target,
+                           Map<Method, MethodHandler> methodHandlerMap) {
     this.target = target;
     this.methodHandlerMap = methodHandlerMap;
   }

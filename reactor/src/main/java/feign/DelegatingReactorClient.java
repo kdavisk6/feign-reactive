@@ -20,7 +20,7 @@ public class DelegatingReactorClient implements ReactiveClient {
    * @param delegate {@link Client} to wrap.
    * @param options for each {@link Request}
    */
-  public DelegatingReactorClient(Client delegate, Options options) {
+  DelegatingReactorClient(Client delegate, Options options) {
     this.delegate = delegate;
     this.options = options;
   }

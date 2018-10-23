@@ -7,7 +7,6 @@ import feign.Target.HardCodedTarget;
 import feign.codec.Decoder;
 import feign.codec.Encoder;
 import feign.codec.ErrorDecoder;
-import feign.util.Assert;
 import java.lang.reflect.Method;
 import java.util.Set;
 
@@ -25,6 +24,7 @@ public class ReactorFeign extends ReactiveFeign {
    * @param logLevel for how much information to report when logging.
    * @param retryer to use in the event of a transient exception or unexpected Response.
    * @param interceptors to apply before executing the {@link Target} request method.
+   * @param queryMapEncoder to use when expanding {@link QueryMap} annotated parameters.
    */
   private ReactorFeign(Contract contract,
                        ReactiveClient client,
@@ -34,9 +34,10 @@ public class ReactorFeign extends ReactiveFeign {
                        Logger logger,
                        Level logLevel,
                        Retryer retryer,
-                       Set<RequestInterceptor> interceptors) {
+                       Set<RequestInterceptor> interceptors,
+                       QueryMapEncoder queryMapEncoder) {
     super(new ReactorInvocationHandlerFactory(), contract, client, encoder, decoder, errorDecoder,
-        logger, logLevel, retryer, interceptors);
+        logger, logLevel, retryer, interceptors, queryMapEncoder);
   }
 
   /**
@@ -57,6 +58,7 @@ public class ReactorFeign extends ReactiveFeign {
         .retryer(this.retryer)
         .logger(this.logger)
         .logLevel(this.logLevel)
+        .queryMapEncoder(this.queryMapEncoder)
         .build();
   }
 
@@ -75,8 +77,14 @@ public class ReactorFeign extends ReactiveFeign {
      */
     @Override
     public <T> T target(Class<T> type, String url) {
+      if (this.client == null) {
+        this.client = new DelegatingReactorClient(
+            new Client.Default(null, null), new Options());
+      }
+
       ReactiveFeign feign = new ReactorFeign(this.contract, this.client, this.encoder, this.decoder,
-          this.errorDecoder, this.logger, this.logLevel, this.retryer, this.interceptors);
+          this.errorDecoder, this.logger, this.logLevel, this.retryer, this.interceptors,
+          this.queryMapEncoder);
       return feign.newInstance(new HardCodedTarget<>(type, url));
     }
   }

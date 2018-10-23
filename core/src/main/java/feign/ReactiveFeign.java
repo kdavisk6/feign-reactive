@@ -32,6 +32,7 @@ public abstract class ReactiveFeign {
   final Logger.Level logLevel;
   final Retryer retryer;
   final Set<RequestInterceptor> interceptors;
+  final QueryMapEncoder queryMapEncoder;
 
   /**
    * Create a new {@link ReactiveFeign} instance.
@@ -46,6 +47,7 @@ public abstract class ReactiveFeign {
    * @param logLevel or how much information to report when logging.
    * @param retryer to use in the event of a transient exception or unexpected Response.
    * @param interceptors to apply before executing the {@link Target} request method.
+   * @param queryMapEncoder to use when expanding QueryMap annotated Objects.
    */
   ReactiveFeign(InvocationHandlerFactory invocationHandlerFactory,
                 Contract contract,
@@ -56,7 +58,8 @@ public abstract class ReactiveFeign {
                 Logger logger,
                 Level logLevel,
                 Retryer retryer,
-                Set<RequestInterceptor> interceptors) {
+                Set<RequestInterceptor> interceptors,
+                QueryMapEncoder queryMapEncoder) {
     Assert.isNotNull(invocationHandlerFactory, "invocationHandlerFactory is required.");
     Assert.isNotNull(contract, "contract is required.");
     this.invocationHandlerFactory = invocationHandlerFactory;
@@ -69,6 +72,7 @@ public abstract class ReactiveFeign {
     this.logLevel = logLevel;
     this.retryer = retryer;
     this.interceptors = interceptors;
+    this.queryMapEncoder = queryMapEncoder;
   }
 
 
@@ -145,6 +149,7 @@ public abstract class ReactiveFeign {
   /**
    * Builder for creating {@link ReactiveFeign} instances.
    */
+  @SuppressWarnings("unused")
   public abstract static class Builder {
 
     Contract contract = new Contract.Default();
@@ -156,6 +161,7 @@ public abstract class ReactiveFeign {
     Logger.Level logLevel = Level.NONE;
     Retryer retryer = new Retryer.Default();
     Set<RequestInterceptor> interceptors = new LinkedHashSet<>();
+    QueryMapEncoder queryMapEncoder = new QueryMapEncoder.Default();
 
     /**
      * Contract to use when parsing the {@link Target} interface.
@@ -263,6 +269,18 @@ public abstract class ReactiveFeign {
      */
     public Builder interceptor(RequestInterceptor requestInterceptor) {
       this.interceptors.add(requestInterceptor);
+      return this;
+    }
+
+    /**
+     * a {@link QueryMapEncoder} instance to use when expanding {@link QueryMap} annotated
+     * parameters.
+     *
+     * @param queryMapEncoder instances.
+     * @return a Builder for chaining.
+     */
+    public Builder queryMapEncoder(QueryMapEncoder queryMapEncoder) {
+      this.queryMapEncoder = queryMapEncoder;
       return this;
     }
 

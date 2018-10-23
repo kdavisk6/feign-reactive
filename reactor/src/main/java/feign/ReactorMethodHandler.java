@@ -2,24 +2,15 @@ package feign;
 
 import feign.InvocationHandlerFactory.MethodHandler;
 import feign.Logger.Level;
-import feign.Param.Expander;
 import feign.codec.DecodeException;
 import feign.codec.Decoder;
 import feign.codec.Encoder;
 import feign.codec.ErrorDecoder;
+import feign.util.Assert;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
-import java.util.function.Consumer;
-import java.util.function.Function;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 
@@ -30,41 +21,48 @@ public class ReactorMethodHandler implements MethodHandler {
 
   private Target<?> target;
   private MethodMetadata metadata;
-  private Set<RequestInterceptor> interceptors;
   private ReactiveClient client;
-  private Encoder encoder;
   private Decoder decoder;
   private ErrorDecoder errorDecoder;
   private Logger logger;
   private Logger.Level logLevel;
   private Retryer retryer;
-  private Map<Integer, Expander> expanders = new LinkedHashMap<>();
+  private final ReactiveRequestTemplateFactory requestTemplateFactory;
 
-  public static Builder builder(Target<?> target, MethodMetadata methodMetadata) {
+  static Builder builder(Target<?> target, MethodMetadata methodMetadata) {
     return new Builder(target, methodMetadata);
   }
 
-  ReactorMethodHandler(Target<?> target,
-                       MethodMetadata metadata,
-                       Set<RequestInterceptor> interceptors,
-                       ReactiveClient client,
-                       Encoder encoder,
-                       Decoder decoder,
-                       ErrorDecoder errorDecoder,
-                       Logger logger,
-                       Level logLevel,
-                       Retryer retryer) {
+  private ReactorMethodHandler(Target<?> target,
+                               MethodMetadata metadata,
+                               Set<RequestInterceptor> interceptors,
+                               ReactiveClient client,
+                               Encoder encoder,
+                               Decoder decoder,
+                               ErrorDecoder errorDecoder,
+                               Logger logger,
+                               Level logLevel,
+                               Retryer retryer,
+                               QueryMapEncoder queryMapEncoder) {
+    Assert.isNotNull(target, "target is required");
+    Assert.isNotNull(metadata, "metadata is required");
+    Assert.isNotNull(client, "client is required");
+    Assert.isNotNull(encoder, "encoder is required");
+    Assert.isNotNull(decoder, "decoder is required");
+    Assert.isNotNull(errorDecoder, "errorDecoder is required");
+    Assert.isNotNull(logger, "logger is required");
+    Assert.isNotNull(retryer, "retryer is required");
+    Assert.isNotNull(queryMapEncoder, "queryMapEncoder is required");
     this.target = target;
     this.metadata = metadata;
-    this.interceptors = interceptors;
     this.client = client;
-    this.encoder = encoder;
     this.decoder = decoder;
     this.errorDecoder = errorDecoder;
     this.logger = logger;
     this.logLevel = logLevel;
     this.retryer = retryer;
-    this.cacheExpanders();
+    this.requestTemplateFactory = new ReactorRequestTemplateFactory(this.metadata, interceptors,
+        encoder, queryMapEncoder);
   }
 
   /**
@@ -72,41 +70,15 @@ public class ReactorMethodHandler implements MethodHandler {
    *
    * @param arguments for the Method.
    * @return a {@link org.reactivestreams.Publisher} for the Method return type.
-   * @throws Throwable in the event that the Method could not be invoked properly.
    */
   @Override
-  public Object invoke(Object[] arguments) throws Throwable {
-
-    /* reference the template for this request */
-    RequestTemplate requestTemplate = this.metadata.template();
-
-    /* build the map of template variables from the method arguments, per the contract */
-    Map<String, Object> variables = this.getVariableMapFromArguments(arguments);
-
-    /* identify the request body from the arguments */
-    final Object requestBody = this.getRequestBodyFromArguments(arguments);
-
-    /* append any query and/or header map method parameters to the template */
+  public Object invoke(Object[] arguments) {
 
     /* start the reactive pipeline */
-    return Flux.just(requestTemplate)
-        /* resolve the template, building the request specification */
-        .map(template -> template.resolve(variables))
-
-        /* process any registered request interceptors */
-        .map(template -> {
-          interceptors.forEach(requestInterceptor -> requestInterceptor.apply(template));
-          return template;
-        })
+    return Flux.from(this.requestTemplateFactory.create(arguments))
 
         /* encode and prepare the request */
-        .map(template -> {
-          try {
-            return prepareRequest(requestBody, template);
-          } catch (Throwable throwable) {
-            throw Exceptions.propagate(throwable);
-          }
-        })
+        .map(template -> target.apply(template))
 
         /* log the request */
         .doOnNext(request -> logger.logRequest(metadata.configKey(), logLevel, request))
@@ -140,38 +112,6 @@ public class ReactorMethodHandler implements MethodHandler {
   }
 
   /**
-   * Locate and extract the argument that represents the body of the request.  Can be {@literal
-   * null} if none are present.
-   *
-   * @param arguments of the method to inspect.
-   * @return the argument that represents the body of the request.  Can be {@literal null}.
-   */
-  private Object getRequestBodyFromArguments(Object[] arguments) {
-    List<Object> methodArguments = Arrays.asList(arguments);
-    if (this.metadata.bodyIndex() != null) {
-      return methodArguments.get(this.metadata.bodyIndex());
-    }
-    return null;
-  }
-
-  /**
-   * Prepare the Request.
-   *
-   * @param body of the Request.
-   * @param template for the Request.
-   * @return a Request specification.
-   */
-  private Request prepareRequest(Object body, RequestTemplate template) {
-    if (body != null) {
-      /* encode the request body, adding it to the request template */
-      encoder.encode(body, metadata.bodyType(), template);
-    }
-
-    /* target the template and return the request */
-    return target.apply(template);
-  }
-
-  /**
    * Parse the Response body into the desired type.
    *
    * @param response to process.
@@ -198,54 +138,11 @@ public class ReactorMethodHandler implements MethodHandler {
     }
   }
 
-  /**
-   * Create the variable substitution map to based on the Method arguments.
-   *
-   * @param arguments to resolve.
-   * @return a map of resolved template variables.
-   */
-  private Map<String, Object> getVariableMapFromArguments(Object[] arguments) {
-    Map<String, Object> variables = new LinkedHashMap<>();
-    Map<Integer, Collection<String>> parameterArguments = this.metadata.indexToName();
-    for (Integer index : parameterArguments.keySet()) {
-      final Object parameter = arguments[index];
-      final Expander expander = this.expanders.get(index);
-      Collection<String> parameterNames = parameterArguments.get(index);
-      parameterNames.forEach(name -> {
-        if (parameter != null) {
-          Object value = parameter;
-          if (expander != null) {
-            value = expander.expand(value);
-          }
-          variables.put(name, value);
-        }
-      });
-    }
-
-    return variables;
-  }
-
-  private void cacheExpanders() {
-    this.expanders = new LinkedHashMap<>(this.metadata.indexToExpander());
-    if (!this.metadata.indexToExpanderClass().isEmpty()) {
-      this.metadata.indexToExpanderClass().forEach(
-          (index, expanderClass) -> {
-            try {
-              Expander expander = expanderClass.getDeclaredConstructor().newInstance();
-              expanders.put(index, expander);
-            } catch (Exception ex) {
-              /* the expander does not have a default constructor and cannot be created */
-              throw new IllegalStateException("Expander " + expanderClass.getName() +
-                  " does not have a visible no-argument constructor. Expander cannot be created.",
-                  ex);
-            }
-          });
-    }
-  }
 
   /**
    * Method Handler Builder.
    */
+  @SuppressWarnings("unused")
   public static class Builder {
 
     private Target<?> target;
@@ -258,8 +155,9 @@ public class ReactorMethodHandler implements MethodHandler {
     private Logger logger;
     private Logger.Level logLevel;
     private Retryer retryer;
+    private QueryMapEncoder queryMapEncoder;
 
-    public Builder(Target<?> target, MethodMetadata metadata) {
+    Builder(Target<?> target, MethodMetadata metadata) {
       this.target = target;
       this.metadata = metadata;
     }
@@ -269,50 +167,55 @@ public class ReactorMethodHandler implements MethodHandler {
       return this;
     }
 
-    public Builder interceptors(Collection<RequestInterceptor> interceptors) {
+    Builder interceptors(Collection<RequestInterceptor> interceptors) {
       this.interceptors.addAll(interceptors);
       return this;
     }
 
-    public Builder client(ReactiveClient client) {
+    Builder client(ReactiveClient client) {
       this.client = client;
       return this;
     }
 
-    public Builder encoder(Encoder encoder) {
+    Builder encoder(Encoder encoder) {
       this.encoder = encoder;
       return this;
     }
 
-    public Builder decoder(Decoder decoder) {
+    Builder decoder(Decoder decoder) {
       this.decoder = decoder;
       return this;
     }
 
-    public Builder errorDecoder(ErrorDecoder errorDecoder) {
+    Builder errorDecoder(ErrorDecoder errorDecoder) {
       this.errorDecoder = errorDecoder;
       return this;
     }
 
-    public Builder logger(Logger logger) {
+    Builder logger(Logger logger) {
       this.logger = logger;
       return this;
     }
 
-    public Builder retryer(Retryer retryer) {
+    Builder retryer(Retryer retryer) {
       this.retryer = retryer;
       return this;
     }
 
-    public Builder logLevel(Logger.Level logLevel) {
+    Builder logLevel(Logger.Level logLevel) {
       this.logLevel = logLevel;
       return this;
     }
 
-    public ReactorMethodHandler build() {
+    Builder queryMapEncoder(QueryMapEncoder queryMapEncoder) {
+      this.queryMapEncoder = queryMapEncoder;
+      return this;
+    }
+
+    ReactorMethodHandler build() {
       return new ReactorMethodHandler(this.target, this.metadata, this.interceptors, this.client,
           this.encoder, this.decoder, this.errorDecoder, this.logger,
-          this.logLevel, this.retryer);
+          this.logLevel, this.retryer, this.queryMapEncoder);
 
     }
   }
